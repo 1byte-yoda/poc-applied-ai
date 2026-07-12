@@ -160,10 +160,40 @@ class ProgressService:
     def calculate_percentage(completed: int, total: int) -> int:
         """Calculate progress percentage as floor(completed/total*100).
 
-        Returns 0 when total is 0. Result is always in [0, 100].
+        Returns 0 when total is 0. Shows at least 1% when any progress exists.
+        Result is always in [0, 100].
         """
         if total <= 0:
             return 0
+        if completed <= 0:
+            return 0
         result = math.floor(completed / total * 100)
+        # Show at least 1% when there's any progress at all
+        if result == 0 and completed > 0:
+            result = 1
         # Clamp to [0, 100] for safety
         return max(0, min(100, result))
+
+    async def unmark_lecture_complete(self, lecture_id: int) -> bool:
+        """Remove completion record for a lecture. Returns True if a record was deleted.
+
+        Raises HTTPException(404) if the lecture does not exist.
+        """
+        # Verify the lecture exists
+        lecture_result = await self.session.execute(
+            select(Lecture.id).where(Lecture.id == lecture_id)
+        )
+        if lecture_result.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Lecture with id {lecture_id} not found",
+            )
+
+        # Delete the progress record if it exists
+        from sqlalchemy import delete
+
+        result = await self.session.execute(
+            delete(LectureProgress).where(LectureProgress.lecture_id == lecture_id)
+        )
+        await self.session.commit()
+        return result.rowcount > 0

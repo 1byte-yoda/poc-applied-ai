@@ -99,3 +99,28 @@ async def get_batch_progress(
             content={"detail": "Service temporarily unavailable. Please retry later."},
             headers={"Retry-After": "30"},
         )
+
+
+@router.delete(
+    "/progress/lectures/{lecture_id}/complete",
+    responses={
+        404: {"model": ErrorResponse},
+        503: {"description": "Service temporarily unavailable"},
+    },
+    summary="Unmark a lecture as complete",
+)
+async def unmark_lecture_complete(
+    lecture_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Remove completion status from a lecture."""
+    try:
+        service = ProgressService(session)
+        deleted = await service.unmark_lecture_complete(lecture_id)
+        return {"lecture_id": lecture_id, "was_completed": deleted}
+    except OSError:
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Service temporarily unavailable. Please retry later."},
+            headers={"Retry-After": "30"},
+        )

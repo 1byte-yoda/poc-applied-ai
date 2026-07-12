@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useCourseDetail } from "../hooks/useCourseDetail";
-import { useCourseProgress, useMarkComplete } from "../hooks/useProgress";
+import { useCourseProgress, useMarkComplete, useUnmarkComplete } from "../hooks/useProgress";
 import { Sidebar } from "../components/Sidebar";
 import { ContentViewer } from "../components/ContentViewer";
 import type { Lecture, Module } from "../types";
@@ -32,6 +32,10 @@ export function CourseDetail() {
     isPending: isMarkingComplete,
     error: markCompleteError,
   } = useMarkComplete(numericCourseId);
+  const {
+    mutate: unmarkComplete,
+    isPending: isUnmarking,
+  } = useUnmarkComplete(numericCourseId);
 
   const [activeLecture, setActiveLecture] = useState<Lecture | null>(null);
 
@@ -114,6 +118,9 @@ export function CourseDetail() {
           <span className="text-sm font-medium text-gray-700">
             {progressData?.percentage ?? 0}%
           </span>
+          <span className="text-xs text-gray-500">
+            ({progressData?.completed_count ?? 0}/{progressData?.total_count ?? 0})
+          </span>
           {progressError && (
             <span className="text-xs text-yellow-600 ml-2">
               (progress unavailable)
@@ -134,12 +141,13 @@ export function CourseDetail() {
               nextLectureTitle={nextLecture?.title ?? null}
               isCompleted={isActiveLectureCompleted}
               onMarkComplete={() => markComplete(activeLecture.id)}
+              onUnmarkComplete={() => unmarkComplete(activeLecture.id)}
               onAutoComplete={
                 activeLecture
                   ? () => markComplete(activeLecture.id)
                   : undefined
               }
-              isMarkingComplete={isMarkingComplete}
+              isMarkingComplete={isMarkingComplete || isUnmarking}
               markCompleteError={markCompleteError}
             />
           ) : (

@@ -14,6 +14,7 @@ interface ContentViewerProps {
   nextLectureTitle?: string | null;
   isCompleted?: boolean;
   onMarkComplete?: () => void;
+  onUnmarkComplete?: () => void;
   onAutoComplete?: () => void;
   isMarkingComplete?: boolean;
   markCompleteError?: Error | null;
@@ -26,6 +27,7 @@ export function ContentViewer({
   nextLectureTitle,
   isCompleted = false,
   onMarkComplete,
+  onUnmarkComplete,
   onAutoComplete,
   isMarkingComplete = false,
   markCompleteError,
@@ -81,8 +83,10 @@ export function ContentViewer({
     if (isCompleted) {
       return (
         <button
-          disabled
-          className="px-4 py-2 rounded-lg bg-green-600 text-white font-medium cursor-not-allowed flex items-center gap-2"
+          onClick={() => onUnmarkComplete?.()}
+          disabled={isMarkingComplete}
+          className="px-4 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 transition-colors flex items-center gap-2"
+          title="Click to unmark as complete"
         >
           <span>✓</span>
           Completed

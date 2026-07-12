@@ -56,3 +56,19 @@ export async function fetchBatchProgress(): Promise<BatchProgressResponse> {
   }
   return res.json();
 }
+
+/** Unmark a lecture as complete (toggle back to incomplete). */
+export async function unmarkLectureComplete(
+  lectureId: number
+): Promise<{ lecture_id: number; was_completed: boolean }> {
+  const res = await fetch(
+    `${BASE_URL}/api/progress/lectures/${lectureId}/complete`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message = body?.detail ?? `Request failed with status ${res.status}`;
+    throw new Error(message);
+  }
+  return res.json();
+}
