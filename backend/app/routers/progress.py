@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
@@ -124,3 +125,80 @@ async def unmark_lecture_complete(
             content={"detail": "Service temporarily unavailable. Please retry later."},
             headers={"Retry-After": "30"},
         )
+
+
+@router.put(
+    "/progress/lectures/{lecture_id}/position",
+    summary="Save playback position for a lecture",
+)
+async def save_playback_position(
+    lecture_id: int,
+    position: float,
+    session: AsyncSession = Depends(get_session),
+):
+    """Save the current playback position (in seconds) for a video lecture."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models import Lecture, PlaybackPosition
+
+    # Verify lecture exists
+    result = await session.execute(
+        select(Lecture.id).where(Lecture.id == lecture_id)
+    )
+    if result.scalar_one_or_none() is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Lecture with id {lecture_id} not found")
+
+    stmt = (
+        pg_insert(PlaybackPosition)
+        .values(lecture_id=lecture_id, position_seconds=position)
+        .on_conflict_do_update(
+            index_elements=["lecture_id"],
+            set_={"position_seconds": position},
+        )
+    )
+    await session.execute(stmt)
+    await session.commit()
+    return {"lecture_id": lecture_id, "position_seconds": position}
+
+
+@router.get(
+    "/progress/lectures/{lecture_id}/position",
+    summary="Get playback position for a lecture",
+)
+async def get_playback_position(
+    lecture_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get the saved playback position (in seconds) for a video lecture."""
+    from sqlalchemy import select as sa_select
+
+    from app.models import PlaybackPosition
+
+    result = await session.execute(
+        sa_select(PlaybackPosition.position_seconds).where(
+            PlaybackPosition.lecture_id == lecture_id
+        )
+    )
+    position = result.scalar_one_or_none()
+    return {"lecture_id": lecture_id, "position_seconds": position or 0.0}
+
+
+@router.delete(
+    "/progress/lectures/{lecture_id}/position",
+    summary="Clear playback position for a lecture",
+)
+async def clear_playback_position(
+    lecture_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Clear the saved playback position (e.g., when video completes)."""
+    from sqlalchemy import delete
+
+    from app.models import PlaybackPosition
+
+    await session.execute(
+        delete(PlaybackPosition).where(PlaybackPosition.lecture_id == lecture_id)
+    )
+    await session.commit()
+    return {"lecture_id": lecture_id, "cleared": True}

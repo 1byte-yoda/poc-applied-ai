@@ -3,19 +3,47 @@ import { useCallback, useEffect, useRef, useState } from "react";
 interface VideoPlayerProps {
   src: string;
   title: string;
+  lectureId: number;
   onEnded?: () => void;
   nextLectureTitle?: string | null;
   onAutoComplete?: () => void;
 }
 
-/** Generate a localStorage key for saving playback position. */
-function getStorageKey(src: string): string {
-  return `video-progress:${src}`;
+const BASE_URL = import.meta.env.VITE_API_URL || "";
+
+/** Save playback position to the backend (fire-and-forget). */
+function savePosition(lectureId: number, seconds: number) {
+  fetch(
+    `${BASE_URL}/api/progress/lectures/${lectureId}/position?position=${seconds}`,
+    { method: "PUT" }
+  ).catch(() => {});
+}
+
+/** Clear saved playback position from the backend (fire-and-forget). */
+function clearPosition(lectureId: number) {
+  fetch(`${BASE_URL}/api/progress/lectures/${lectureId}/position`, {
+    method: "DELETE",
+  }).catch(() => {});
+}
+
+/** Fetch saved playback position from the backend. */
+async function fetchPosition(lectureId: number): Promise<number> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/api/progress/lectures/${lectureId}/position`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      return data.position_seconds ?? 0;
+    }
+  } catch {}
+  return 0;
 }
 
 export function VideoPlayer({
   src,
   title,
+  lectureId,
   onEnded,
   nextLectureTitle,
   onAutoComplete,
@@ -25,6 +53,7 @@ export function VideoPlayer({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const saveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const positionRestoredRef = useRef(false);
 
   const cancelCountdown = useCallback(() => {
     setShowCountdown(false);
@@ -37,7 +66,7 @@ export function VideoPlayer({
 
   const handleVideoEnd = useCallback(() => {
     // Clear saved position when video completes
-    localStorage.removeItem(getStorageKey(src));
+    clearPosition(lectureId);
 
     if (!onEnded) return;
     setShowCountdown(true);
@@ -54,49 +83,45 @@ export function VideoPlayer({
         return prev - 1;
       });
     }, 1000);
-  }, [src, onEnded, cancelCountdown, onAutoComplete]);
+  }, [lectureId, onEnded, cancelCountdown, onAutoComplete]);
 
-  // Restore playback position when video loads
+  // Restore playback position from backend when video loads
   const handleLoadedMetadata = useCallback(() => {
+    if (positionRestoredRef.current) return;
+    positionRestoredRef.current = true;
+
     const video = videoRef.current;
     if (!video) return;
 
-    const saved = localStorage.getItem(getStorageKey(src));
-    if (saved) {
-      const time = parseFloat(saved);
-      // Only resume if not near the end (within 5 seconds of end = start over)
-      if (!isNaN(time) && time > 0 && time < video.duration - 5) {
+    fetchPosition(lectureId).then((time) => {
+      if (time > 0 && time < video.duration - 5) {
         video.currentTime = time;
       }
-    }
-  }, [src]);
+    });
+  }, [lectureId]);
 
-  // Save playback position periodically (every 3 seconds)
+  // Save playback position to backend every 5 seconds
   useEffect(() => {
+    positionRestoredRef.current = false;
+
     saveIntervalRef.current = setInterval(() => {
       const video = videoRef.current;
       if (video && !video.paused && video.currentTime > 0) {
-        localStorage.setItem(
-          getStorageKey(src),
-          video.currentTime.toString()
-        );
+        savePosition(lectureId, video.currentTime);
       }
-    }, 3000);
+    }, 5000);
 
     return () => {
-      // Save final position on unmount
+      // Save position on unmount
       const video = videoRef.current;
       if (video && video.currentTime > 0 && video.currentTime < video.duration - 5) {
-        localStorage.setItem(
-          getStorageKey(src),
-          video.currentTime.toString()
-        );
+        savePosition(lectureId, video.currentTime);
       }
       if (saveIntervalRef.current) {
         clearInterval(saveIntervalRef.current);
       }
     };
-  }, [src]);
+  }, [lectureId]);
 
   // Clean up countdown timer on unmount
   useEffect(() => {
@@ -105,7 +130,7 @@ export function VideoPlayer({
     };
   }, []);
 
-  // Reset countdown when src changes (new lecture loaded)
+  // Reset countdown when src changes
   useEffect(() => {
     cancelCountdown();
   }, [src, cancelCountdown]);
@@ -137,24 +162,11 @@ export function VideoPlayer({
                 {nextLectureTitle ?? "Next lecture"}
               </p>
 
-              {/* Circular countdown */}
               <div className="relative inline-flex items-center justify-center mb-4">
                 <svg className="w-20 h-20 transform -rotate-90">
+                  <circle cx="40" cy="40" r="36" fill="none" stroke="#374151" strokeWidth="4" />
                   <circle
-                    cx="40"
-                    cy="40"
-                    r="36"
-                    fill="none"
-                    stroke="#374151"
-                    strokeWidth="4"
-                  />
-                  <circle
-                    cx="40"
-                    cy="40"
-                    r="36"
-                    fill="none"
-                    stroke="#6366f1"
-                    strokeWidth="4"
+                    cx="40" cy="40" r="36" fill="none" stroke="#6366f1" strokeWidth="4"
                     strokeDasharray={2 * Math.PI * 36}
                     strokeDashoffset={2 * Math.PI * 36 * (1 - countdown / 5)}
                     strokeLinecap="round"
@@ -172,11 +184,7 @@ export function VideoPlayer({
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    cancelCountdown();
-                    onAutoComplete?.();
-                    onEnded?.();
-                  }}
+                  onClick={() => { cancelCountdown(); onAutoComplete?.(); onEnded?.(); }}
                   className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors text-sm"
                 >
                   Play now

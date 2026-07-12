@@ -5,6 +5,7 @@ from app.models.course import Base, Course
 from app.models.lecture import Lecture
 from app.models.lecture_progress import LectureProgress
 from app.models.module import Module
+from app.models.playback_position import PlaybackPosition
 from app.models.section import Section
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "Lecture",
     "LectureProgress",
     "Module",
+    "PlaybackPosition",
     "Section",
 ]

@@ -42,6 +42,7 @@ export function ContentViewer({
           <VideoPlayer
             src={contentUrl}
             title={lecture.title}
+            lectureId={lecture.id}
             onEnded={onNext}
             nextLectureTitle={nextLectureTitle}
             onAutoComplete={onAutoComplete}
