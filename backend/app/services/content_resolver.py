@@ -92,10 +92,15 @@ async def resolve_lecture_content(
         if not full_path.exists():
             raise HTTPException(status_code=404, detail="Media file not found")
 
+        # For PDFs and images, serve inline (viewable in browser)
+        # For other types, use attachment (triggers download)
+        content_disposition = "inline" if content_type in ("pdf", "png") else None
+
         return FileResponse(
             path=str(full_path),
             media_type=_MIME_TYPES[content_type],
             filename=lecture.original_filename or lecture.title,
+            content_disposition_type="inline" if content_type in ("pdf", "png") else "attachment",
         )
 
     # Notebook → redirect to Colab

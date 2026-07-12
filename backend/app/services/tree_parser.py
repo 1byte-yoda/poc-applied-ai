@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -11,6 +12,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+def _natural_sort_key(node: "ParsedNode") -> list:
+    """Generate a sort key for natural ordering of filenames.
+
+    Splits the name into text and numeric parts so that
+    '1.1. Foo' sorts before '2. Bar' and '01. X' groups with '1.1. Y'.
+    """
+    parts = re.split(r'(\d+)', node.name)
+    return [int(p) if p.isdigit() else p.lower() for p in parts]
 
 
 class ContentType(str, Enum):
@@ -294,7 +305,7 @@ async def _process_lectures(
     from app.models import Lecture
 
     order = start_order
-    for node in nodes:
+    for node in sorted(nodes, key=_natural_sort_key):
         if node.content_type is not None:
             # Leaf node → create a Lecture
             file_path = f"{path_prefix}{node.path}" if path_prefix else node.path
@@ -380,7 +391,7 @@ async def seed_database(
 
             module_order = 0
 
-            for child in root_node.children:
+            for child in sorted(root_node.children, key=_natural_sort_key):
                 if child.content_type is not None:
                     # Top-level leaf (file at depth-1)
                     # Create a default Module + Section to house it
@@ -424,7 +435,7 @@ async def seed_database(
 
                 section_order = 0
 
-                for section_node in child.children:
+                for section_node in sorted(child.children, key=_natural_sort_key):
                     if section_node.content_type is not None:
                         # Depth-2 leaf (file directly under module)
                         # Create a default Section to house it
