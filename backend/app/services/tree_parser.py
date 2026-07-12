@@ -580,9 +580,9 @@ async def seed_database(
                             path_prefix=path_prefix,
                         )
 
-        conn = await session.connection()
-        await conn.execute(text("UPDATE lectures SET file_path = REPLACE(file_path, 'applied_roots/', 'applied_roots/3. Course 3 - Machine Learning [7 Credits]/' ) WHERE file_path LIKE 'applied_roots/%';"))
-        await conn.commit()
+        # conn = await session.connection()
+        # await conn.execute(text("UPDATE lectures SET file_path = REPLACE(file_path, 'applied_roots/', 'applied_roots/3. Course 3 - Machine Learning [7 Credits]/' ) WHERE file_path LIKE 'applied_roots/%';"))
+        # await conn.commit()
 
     logger.info(
         "Successfully seeded course %r from source_file=%r.",
