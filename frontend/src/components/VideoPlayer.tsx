@@ -5,9 +5,16 @@ interface VideoPlayerProps {
   title: string;
   onEnded?: () => void;
   nextLectureTitle?: string | null;
+  onAutoComplete?: () => void;
 }
 
-export function VideoPlayer({ src, title, onEnded, nextLectureTitle }: VideoPlayerProps) {
+export function VideoPlayer({
+  src,
+  title,
+  onEnded,
+  nextLectureTitle,
+  onAutoComplete,
+}: VideoPlayerProps) {
   const [showCountdown, setShowCountdown] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -31,13 +38,15 @@ export function VideoPlayer({ src, title, onEnded, nextLectureTitle }: VideoPlay
       setCountdown((prev) => {
         if (prev <= 1) {
           cancelCountdown();
+          // Fire auto-complete before navigating (fire-and-forget)
+          onAutoComplete?.();
           onEnded();
           return 5;
         }
         return prev - 1;
       });
     }, 1000);
-  }, [onEnded, cancelCountdown]);
+  }, [onEnded, cancelCountdown, onAutoComplete]);
 
   // Clean up timer on unmount or src change
   useEffect(() => {
@@ -114,6 +123,8 @@ export function VideoPlayer({ src, title, onEnded, nextLectureTitle }: VideoPlay
                 <button
                   onClick={() => {
                     cancelCountdown();
+                    // Fire auto-complete before navigating (fire-and-forget)
+                    onAutoComplete?.();
                     onEnded?.();
                   }}
                   className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors text-sm"

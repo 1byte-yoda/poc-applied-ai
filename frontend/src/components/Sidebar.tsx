@@ -5,12 +5,14 @@ interface SidebarProps {
   modules: Module[];
   activeLectureId: number | null;
   onSelectLecture: (lecture: Lecture) => void;
+  completedLectureIds?: Set<number>;
 }
 
 export function Sidebar({
   modules,
   activeLectureId,
   onSelectLecture,
+  completedLectureIds,
 }: SidebarProps) {
   const [expandedModules, setExpandedModules] = useState<Set<number>>(
     () => new Set(modules.map((m) => m.id))
@@ -74,16 +76,26 @@ export function Sidebar({
                           <li key={lecture.id}>
                             <button
                               onClick={() => onSelectLecture(lecture)}
-                              className={`w-full text-left text-sm py-1 px-2 rounded truncate ${
+                              className={`w-full text-left text-sm py-1 px-2 rounded flex items-center gap-1 ${
                                 activeLectureId === lecture.id
                                   ? "bg-indigo-100 text-indigo-800 font-medium"
                                   : "text-gray-600 hover:bg-gray-50"
                               }`}
                             >
-                              <span className="mr-2 text-xs">
+                              <span className="text-xs shrink-0">
                                 {getContentIcon(lecture.content_type)}
                               </span>
-                              {lecture.title}
+                              <span className="truncate flex-1">
+                                {lecture.title}
+                              </span>
+                              {completedLectureIds?.has(lecture.id) && (
+                                <span
+                                  className="text-green-600 text-xs shrink-0 ml-1"
+                                  title="Completed"
+                                >
+                                  ✓
+                                </span>
+                              )}
                             </button>
                           </li>
                         ))}

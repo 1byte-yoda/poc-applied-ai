@@ -101,6 +101,8 @@ async def database_error_handler(request: Request, exc: OSError):
 # Include routers
 from app.routers.courses import router as courses_router  # noqa: E402
 from app.routers.lectures import router as lectures_router  # noqa: E402
+from app.routers.progress import router as progress_router  # noqa: E402
 
 app.include_router(courses_router, prefix="/api")
 app.include_router(lectures_router, prefix="/api")
+app.include_router(progress_router, prefix="/api")

@@ -8,6 +8,11 @@ from app.schemas.course import (
     SectionResponse,
 )
 from app.schemas.lecture import LectureMetadataResponse, LectureResponse
+from app.schemas.progress import (
+    BatchProgressResponse,
+    CourseProgressResponse,
+    LectureCompleteResponse,
+)
 
 __all__ = [
     "CourseResponse",
@@ -17,4 +22,7 @@ __all__ = [
     "LectureResponse",
     "LectureMetadataResponse",
     "ErrorResponse",
+    "LectureCompleteResponse",
+    "CourseProgressResponse",
+    "BatchProgressResponse",
 ]
