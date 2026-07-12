@@ -1,14 +1,44 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useCourseDetail } from "../hooks/useCourseDetail";
 import { Sidebar } from "../components/Sidebar";
 import { ContentViewer } from "../components/ContentViewer";
-import type { Lecture } from "../types";
+import type { Lecture, Module } from "../types";
+
+/** Flatten all lectures from the nested module/section structure into a single ordered list. */
+function flattenLectures(modules: Module[]): Lecture[] {
+  const lectures: Lecture[] = [];
+  for (const mod of modules) {
+    for (const section of mod.sections) {
+      for (const lecture of section.lectures) {
+        lectures.push(lecture);
+      }
+    }
+  }
+  return lectures;
+}
 
 export function CourseDetail() {
   const { courseId } = useParams<{ courseId: string }>();
   const { data: course, isLoading, error } = useCourseDetail(Number(courseId));
   const [activeLecture, setActiveLecture] = useState<Lecture | null>(null);
+
+  // Flat list of all lectures in order for next/prev navigation
+  const allLectures = useMemo(
+    () => (course ? flattenLectures(course.modules) : []),
+    [course]
+  );
+
+  const activeIndex = useMemo(
+    () => (activeLecture ? allLectures.findIndex((l) => l.id === activeLecture.id) : -1),
+    [activeLecture, allLectures]
+  );
+
+  const prevLecture = activeIndex > 0 ? allLectures[activeIndex - 1] : null;
+  const nextLecture =
+    activeIndex >= 0 && activeIndex < allLectures.length - 1
+      ? allLectures[activeIndex + 1]
+      : null;
 
   if (isLoading) {
     return (
@@ -43,7 +73,12 @@ export function CourseDetail() {
       />
       <main className="flex-1 overflow-auto bg-gray-50">
         {activeLecture ? (
-          <ContentViewer lecture={activeLecture} />
+          <ContentViewer
+            lecture={activeLecture}
+            onPrev={prevLecture ? () => setActiveLecture(prevLecture) : undefined}
+            onNext={nextLecture ? () => setActiveLecture(nextLecture) : undefined}
+            nextLectureTitle={nextLecture?.title ?? null}
+          />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <h2 className="text-2xl font-semibold text-gray-800 mb-2">
