@@ -38,3 +38,31 @@ export interface Course {
 export interface CourseDetail extends Course {
   modules: Module[];
 }
+
+/** Module card for specialization detail page. */
+export interface ModuleListItem {
+  id: number;
+  title: string;
+  order: number;
+  section_count: number;
+  lecture_count: number;
+}
+
+/** Section card for module detail page. */
+export interface SectionListItem {
+  id: number;
+  title: string;
+  order: number;
+  lecture_count: number;
+}
+
+/** Section detail for content viewer. */
+export interface SectionDetail {
+  id: number;
+  title: string;
+  module_id: number;
+  module_title: string;
+  course_id: number;
+  course_title: string;
+  lectures: Lecture[];
+}

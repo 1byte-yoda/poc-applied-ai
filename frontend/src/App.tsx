@@ -1,6 +1,9 @@
 import { Routes, Route, Link } from "react-router-dom";
-import { CourseList } from "./pages/CourseList";
-import { CourseDetail } from "./pages/CourseDetail";
+import { SpecializationList } from "./pages/SpecializationList";
+import { SpecializationDetail } from "./pages/SpecializationDetail";
+import { ModuleDetail } from "./pages/ModuleDetail";
+import { SectionViewer } from "./pages/SectionViewer";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 export function App() {
   return (
@@ -11,10 +14,14 @@ export function App() {
         </Link>
       </header>
       <div className="flex-1">
-        <Routes>
-          <Route path="/" element={<CourseList />} />
-          <Route path="/courses/:courseId" element={<CourseDetail />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<SpecializationList />} />
+            <Route path="/specializations/:courseId" element={<SpecializationDetail />} />
+            <Route path="/specializations/:courseId/modules/:moduleId" element={<ModuleDetail />} />
+            <Route path="/courses/:sectionId" element={<SectionViewer />} />
+          </Routes>
+        </ErrorBoundary>
       </div>
     </div>
   );

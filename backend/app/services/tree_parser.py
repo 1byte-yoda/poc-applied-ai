@@ -14,14 +14,53 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 
-def _natural_sort_key(node: "ParsedNode") -> list:
-    """Generate a sort key for natural ordering of filenames.
+def _extract_leading_integer(name: str) -> int | None:
+    """Extract the leading integer from a filename, stripping leading zeros.
 
-    Splits the name into text and numeric parts so that
-    '1.1. Foo' sorts before '2. Bar' and '01. X' groups with '1.1. Y'.
+    Examples:
+        "01. Introduction" → 1
+        "1.1 Variables" → 1
+        "10.2 Item" → 10
+        "No number" → None
     """
-    parts = re.split(r'(\d+)', node.name)
-    return [int(p) if p.isdigit() else p.lower() for p in parts]
+    match = re.match(r'^0*(\d+)', name)
+    return int(match.group(1)) if match else None
+
+
+def _extract_full_numeric_prefix(name: str) -> list[int]:
+    """Extract all dot-separated numeric components from the prefix of a name.
+
+    Examples:
+        "01. Introduction" → [1]
+        "1.1 Variables" → [1, 1]
+        "1.2.3 Deep Topic" → [1, 2, 3]
+        "No number" → []
+    """
+    match = re.match(r'^([\d.]+)', name)
+    if not match:
+        return []
+    prefix = match.group(1).rstrip('.')
+    parts = prefix.split('.')
+    return [int(p) for p in parts if p]
+
+
+def _grouped_sort_key(node: "ParsedNode") -> tuple[int, list[int], str]:
+    """Generate a sort key that groups items by leading integer.
+
+    Sort priority:
+      1. Primary: leading integer group (items share group if same leading int)
+      2. Secondary: full numeric prefix as list of ints (element-by-element)
+      3. Tertiary: lowercase name as tiebreaker
+
+    Items without a numeric prefix get group = 999999 (sort last).
+    """
+    leading = _extract_leading_integer(node.name)
+    full_prefix = _extract_full_numeric_prefix(node.name)
+
+    if leading is None:
+        return (999999, [], node.name.lower())
+
+    return (leading, full_prefix, node.name.lower())
 
 
 class ContentType(str, Enum):
@@ -305,7 +344,7 @@ async def _process_lectures(
     from app.models import Lecture
 
     order = start_order
-    for node in sorted(nodes, key=_natural_sort_key):
+    for node in sorted(nodes, key=_grouped_sort_key):
         if node.content_type is not None:
             # Leaf node → create a Lecture
             file_path = f"{path_prefix}{node.path}" if path_prefix else node.path
@@ -391,7 +430,7 @@ async def seed_database(
 
             module_order = 0
 
-            for child in sorted(root_node.children, key=_natural_sort_key):
+            for child in sorted(root_node.children, key=_grouped_sort_key):
                 if child.content_type is not None:
                     # Top-level leaf (file at depth-1)
                     # Create a default Module + Section to house it
@@ -435,7 +474,7 @@ async def seed_database(
 
                 section_order = 0
 
-                for section_node in sorted(child.children, key=_natural_sort_key):
+                for section_node in sorted(child.children, key=_grouped_sort_key):
                     if section_node.content_type is not None:
                         # Depth-2 leaf (file directly under module)
                         # Create a default Section to house it
@@ -497,7 +536,7 @@ async def seed_database(
                             section_order += 1
                             
                             file_order = 0
-                            for f in sorted(child_files, key=_natural_sort_key):
+                            for f in sorted(child_files, key=_grouped_sort_key):
                                 fp = f"{path_prefix}{f.path}" if path_prefix else f.path
                                 lecture = Lecture(
                                     section_id=section.id,
@@ -511,7 +550,7 @@ async def seed_database(
                                 file_order += 1
                         
                         # Each sub-folder becomes its own Section
-                        for sub_dir in sorted(child_dirs, key=_natural_sort_key):
+                        for sub_dir in sorted(child_dirs, key=_grouped_sort_key):
                             section = Section(
                                 module_id=module.id,
                                 title=sub_dir.name,

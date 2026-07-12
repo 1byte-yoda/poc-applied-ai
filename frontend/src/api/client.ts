@@ -1,4 +1,4 @@
-import type { Course, CourseDetail } from "../types";
+import type { Course, CourseDetail, ModuleListItem, SectionListItem, SectionDetail } from "../types";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "";
 
@@ -38,4 +38,19 @@ export async function getLectureHtmlContent(
     throw new Error(message);
   }
   return res.text();
+}
+
+/** Fetch modules for a specialization (course). */
+export function getModulesForCourse(courseId: number): Promise<ModuleListItem[]> {
+  return fetchJson<ModuleListItem[]>(`/api/courses/${courseId}/modules`);
+}
+
+/** Fetch sections for a module. */
+export function getSectionsForModule(moduleId: number): Promise<SectionListItem[]> {
+  return fetchJson<SectionListItem[]>(`/api/modules/${moduleId}/sections`);
+}
+
+/** Fetch section detail with lectures for the content viewer. */
+export function getSectionDetail(sectionId: number): Promise<SectionDetail> {
+  return fetchJson<SectionDetail>(`/api/sections/${sectionId}`);
 }
