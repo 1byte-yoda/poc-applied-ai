@@ -202,3 +202,48 @@ async def clear_playback_position(
     )
     await session.commit()
     return {"lecture_id": lecture_id, "cleared": True}
+
+
+@router.put(
+    "/progress/courses/{course_id}/last-viewed",
+    summary="Save last viewed lecture for a course",
+)
+async def save_last_viewed(
+    course_id: int,
+    lecture_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Save which lecture was last viewed in a course (for auto-resume on revisit)."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models import LastViewed
+
+    stmt = (
+        pg_insert(LastViewed)
+        .values(course_id=course_id, lecture_id=lecture_id)
+        .on_conflict_do_update(
+            index_elements=["course_id"],
+            set_={"lecture_id": lecture_id},
+        )
+    )
+    await session.execute(stmt)
+    await session.commit()
+    return {"course_id": course_id, "lecture_id": lecture_id}
+
+
+@router.get(
+    "/progress/courses/{course_id}/last-viewed",
+    summary="Get last viewed lecture for a course",
+)
+async def get_last_viewed(
+    course_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Get the last viewed lecture ID for a course (returns null if none)."""
+    from app.models import LastViewed
+
+    result = await session.execute(
+        select(LastViewed.lecture_id).where(LastViewed.course_id == course_id)
+    )
+    lecture_id = result.scalar_one_or_none()
+    return {"course_id": course_id, "lecture_id": lecture_id}

@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useCourseDetail } from "../hooks/useCourseDetail";
 import { useCourseProgress, useMarkComplete, useUnmarkComplete } from "../hooks/useProgress";
 import { Sidebar } from "../components/Sidebar";
 import { ContentViewer } from "../components/ContentViewer";
 import type { Lecture, Module } from "../types";
+
+const BASE_URL = import.meta.env.VITE_API_URL || "";
 
 /** Flatten all lectures from the nested module/section structure into a single ordered list. */
 function flattenLectures(modules: Module[]): Lecture[] {
@@ -38,11 +40,40 @@ export function CourseDetail() {
   } = useUnmarkComplete(numericCourseId);
 
   const [activeLecture, setActiveLecture] = useState<Lecture | null>(null);
+  const [lastViewedRestored, setLastViewedRestored] = useState(false);
 
   // Flat list of all lectures in order for next/prev navigation
   const allLectures = useMemo(
     () => (course ? flattenLectures(course.modules) : []),
     [course]
+  );
+
+  // Restore last viewed lecture on first load
+  useEffect(() => {
+    if (lastViewedRestored || !course || allLectures.length === 0) return;
+
+    fetch(`${BASE_URL}/api/progress/courses/${numericCourseId}/last-viewed`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.lecture_id) {
+          const found = allLectures.find((l) => l.id === data.lecture_id);
+          if (found) setActiveLecture(found);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLastViewedRestored(true));
+  }, [course, allLectures, numericCourseId, lastViewedRestored]);
+
+  // Persist last viewed lecture whenever it changes
+  const handleSelectLecture = useCallback(
+    (lecture: Lecture) => {
+      setActiveLecture(lecture);
+      fetch(
+        `${BASE_URL}/api/progress/courses/${numericCourseId}/last-viewed?lecture_id=${lecture.id}`,
+        { method: "PUT" }
+      ).catch(() => {});
+    },
+    [numericCourseId]
   );
 
   const activeIndex = useMemo(
@@ -102,7 +133,7 @@ export function CourseDetail() {
       <Sidebar
         modules={course.modules}
         activeLectureId={activeLecture?.id ?? null}
-        onSelectLecture={setActiveLecture}
+        onSelectLecture={handleSelectLecture}
         completedLectureIds={completedLectureIds}
       />
       <main className="flex-1 overflow-auto bg-gray-50 flex flex-col">
@@ -133,10 +164,10 @@ export function CourseDetail() {
             <ContentViewer
               lecture={activeLecture}
               onPrev={
-                prevLecture ? () => setActiveLecture(prevLecture) : undefined
+                prevLecture ? () => handleSelectLecture(prevLecture) : undefined
               }
               onNext={
-                nextLecture ? () => setActiveLecture(nextLecture) : undefined
+                nextLecture ? () => handleSelectLecture(nextLecture) : undefined
               }
               nextLectureTitle={nextLecture?.title ?? null}
               isCompleted={isActiveLectureCompleted}
