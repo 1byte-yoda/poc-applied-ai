@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -366,22 +366,93 @@ async def _process_lectures(
     return order
 
 
+def _find_sections(
+    node: ParsedNode, path_parts: list[str]
+) -> list[tuple[str, str, list[ParsedNode]]]:
+    """Recursively find all "section-level" directories in the tree.
+
+    A section-level directory is one that directly contains files (lectures)
+    and has NO child directories. This enables dynamic depth handling —
+    intermediate directories above the section level are collapsed into
+    the module title using " > " separator.
+
+    When a node has BOTH files and sub-directories, the files are placed into
+    a dedicated "Materials" section, and the sub-directories continue recursing.
+
+    Args:
+        node: The current node being examined.
+        path_parts: Accumulated ancestor directory names leading to this node.
+
+    Returns:
+        List of (module_title, section_name, children) tuples where:
+        - module_title: joined path of all ancestors above the section
+          (e.g., "Semester I > Course 1")
+        - section_name: the name of the section directory itself
+        - children: the section's children (files + subdirs to flatten)
+    """
+    file_children = [c for c in node.children if c.content_type is not None]
+    child_dirs = [c for c in node.children if c.content_type is None]
+
+    has_files = len(file_children) > 0
+    has_dirs = len(child_dirs) > 0
+
+    if has_files and not has_dirs:
+        # Pure section: only files, no sub-directories
+        module_title = (
+            " > ".join(path_parts[:-1])
+            if len(path_parts) > 1
+            else path_parts[0] if path_parts else "General"
+        )
+        section_name = path_parts[-1] if path_parts else node.name
+        return [(module_title, section_name, node.children)]
+
+    if has_files and has_dirs:
+        # Mixed node: has both files and sub-directories
+        # Files go into a dedicated "Materials" section
+        # Sub-directories continue recursing
+        module_title = (
+            " > ".join(path_parts)
+            if path_parts
+            else "General"
+        )
+        results: list[tuple[str, str, list[ParsedNode]]] = [
+            (module_title, "Materials", file_children)
+        ]
+        for child in child_dirs:
+            results.extend(_find_sections(child, path_parts + [child.name]))
+        return results
+
+    if not child_dirs:
+        # Empty directory, skip
+        return []
+
+    # This node doesn't contain files directly — recurse into children
+    results = []
+    for child in child_dirs:
+        results.extend(_find_sections(child, path_parts + [child.name]))
+
+    return results
+
+
 async def seed_database(
     course_name: str,
     root_node: ParsedNode,
     source_file: str | None = None,
     path_prefix: str = "",
-    session_factory: async_sessionmaker | None = None,
+    session_factory: "async_sessionmaker | None" = None,
 ) -> None:
-    """Persist a parsed tree structure into database tables.
+    """Persist a parsed tree structure into database tables using dynamic level detection.
 
-    Maps the hierarchy as follows:
-    - depth-1 directory nodes → Module records
-    - depth-2 directory nodes → Section records
-    - depth-3+ leaf nodes → Lecture records
-    - depth-1 leaf nodes → default Module + Section + Lecture
-    - depth-2 leaf nodes → default Section + Lecture
-    - depth-3+ non-leaf nodes → flattened into parent Section as lectures
+    Uses a recursive algorithm to find "section-level" directories (those that
+    directly contain files/lectures). Everything above the section level is
+    collapsed into Module titles using " > " separator. This handles trees of
+    any depth without hard-coding depth-to-entity mappings.
+
+    Mapping:
+    - Ancestors above the section level → collapsed into Module title
+    - Section-level directories (contain files) → Section records
+    - Files within sections → Lecture records (subdirs are flattened)
+    - Top-level leaf files → "Course Materials" module + "General" section
 
     Idempotent: checks if a Course with the same source_file already exists.
     If it does, seeding is skipped entirely.
@@ -428,44 +499,81 @@ async def seed_database(
             session.add(course)
             await session.flush()  # Get course.id
 
+            # Collect top-level leaf files for a "Course Materials" module
+            top_level_files = [
+                c for c in root_node.children if c.content_type is not None
+            ]
+
+            # Collect all sections with their module grouping via recursive detection
+            all_sections: list[tuple[str, str, list[ParsedNode]]] = []
+            for child in root_node.children:
+                if child.content_type is not None:
+                    continue  # Handled separately as top-level files
+                all_sections.extend(_find_sections(child, [child.name]))
+
+            # Group sections by module_title, preserving encounter order
+            modules_dict: dict[str, list[tuple[str, list[ParsedNode]]]] = {}
+            for module_title, section_name, children in all_sections:
+                if module_title not in modules_dict:
+                    modules_dict[module_title] = []
+                modules_dict[module_title].append((section_name, children))
+
             module_order = 0
 
-            for child in sorted(root_node.children, key=_grouped_sort_key):
-                if child.content_type is not None:
-                    # Top-level leaf (file at depth-1)
-                    # Create a default Module + Section to house it
-                    module = Module(
-                        course_id=course.id,
-                        title="Course Materials",
-                        order_index=module_order,
-                    )
-                    session.add(module)
-                    await session.flush()
-
-                    section = Section(
-                        module_id=module.id,
-                        title="General",
-                        order_index=0,
-                    )
-                    session.add(section)
-                    await session.flush()
-
-                    lecture = Lecture(
-                        section_id=section.id,
-                        title=child.name,
-                        order_index=0,
-                        content_type=child.content_type.value,
-                        file_path=f"{path_prefix}{child.path}" if path_prefix else child.path,
-                        original_filename=child.name,
-                    )
-                    session.add(lecture)
-                    module_order += 1
-                    continue
-
-                # Depth-1 directory node → Module
+            # Handle top-level leaf files first
+            if top_level_files:
                 module = Module(
                     course_id=course.id,
-                    title=child.name,
+                    title="Course Materials",
+                    order_index=module_order,
+                )
+                session.add(module)
+                await session.flush()
+
+                section = Section(
+                    module_id=module.id,
+                    title="General",
+                    order_index=0,
+                )
+                session.add(section)
+                await session.flush()
+
+                lecture_order = 0
+                for leaf in sorted(top_level_files, key=_grouped_sort_key):
+                    file_path = (
+                        f"{path_prefix}{leaf.path}" if path_prefix else leaf.path
+                    )
+                    lecture = Lecture(
+                        section_id=section.id,
+                        title=leaf.name,
+                        order_index=lecture_order,
+                        content_type=leaf.content_type.value,
+                        file_path=file_path,
+                        original_filename=leaf.name,
+                    )
+                    session.add(lecture)
+                    lecture_order += 1
+                module_order += 1
+
+            # Create a synthetic ParsedNode per module_title for sorting purposes
+            # We use the first section's parent info to derive a sort key
+            module_sort_items = []
+            for module_title, sections in modules_dict.items():
+                # Create a temporary node for sorting by _grouped_sort_key
+                sort_node = ParsedNode(
+                    name=module_title,
+                    path=module_title,
+                    depth=0,
+                    content_type=None,
+                )
+                module_sort_items.append((sort_node, module_title, sections))
+
+            for _, module_title, sections in sorted(
+                module_sort_items, key=lambda x: _grouped_sort_key(x[0])
+            ):
+                module = Module(
+                    course_id=course.id,
+                    title=module_title,
                     order_index=module_order,
                 )
                 session.add(module)
@@ -473,116 +581,36 @@ async def seed_database(
                 module_order += 1
 
                 section_order = 0
+                # Sort sections using _grouped_sort_key on section name
+                section_sort_items = []
+                for section_name, children in sections:
+                    sort_node = ParsedNode(
+                        name=section_name,
+                        path=section_name,
+                        depth=0,
+                        content_type=None,
+                    )
+                    section_sort_items.append((sort_node, section_name, children))
 
-                for section_node in sorted(child.children, key=_grouped_sort_key):
-                    if section_node.content_type is not None:
-                        # Depth-2 leaf (file directly under module)
-                        # Create a default Section to house it
-                        # Check if we already created a default section for this module
-                        existing_default = await session.execute(
-                            select(Section).where(
-                                Section.module_id == module.id,
-                                Section.title == "Lectures",
-                            )
-                        )
-                        default_section = existing_default.scalar_one_or_none()
-                        if default_section is None:
-                            default_section = Section(
-                                module_id=module.id,
-                                title="Lectures",
-                                order_index=section_order,
-                            )
-                            session.add(default_section)
-                            await session.flush()
-                            section_order += 1
+                for _, section_name, children in sorted(
+                    section_sort_items, key=lambda x: _grouped_sort_key(x[0])
+                ):
+                    section = Section(
+                        module_id=module.id,
+                        title=section_name,
+                        order_index=section_order,
+                    )
+                    session.add(section)
+                    await session.flush()
+                    section_order += 1
 
-                        # Count existing lectures in default section for order
-                        existing_lectures = await session.execute(
-                            select(Lecture).where(
-                                Lecture.section_id == default_section.id
-                            )
-                        )
-                        lecture_count = len(existing_lectures.scalars().all())
-
-                        lecture = Lecture(
-                            section_id=default_section.id,
-                            title=section_node.name,
-                            order_index=lecture_count,
-                            content_type=section_node.content_type.value,
-                            file_path=f"{path_prefix}{section_node.path}" if path_prefix else section_node.path,
-                            original_filename=section_node.name,
-                        )
-                        session.add(lecture)
-                        continue
-
-                    # Depth-2 directory node → could be a direct section with lectures,
-                    # or a container with depth-3 sub-folders (like "Course 1" containing chapters)
-                    
-                    # Check if this node's children are mostly directories (sub-sections)
-                    child_dirs = [c for c in section_node.children if c.content_type is None]
-                    child_files = [c for c in section_node.children if c.content_type is not None]
-                    
-                    if child_dirs:
-                        # This depth-2 node has sub-folders → each sub-folder becomes a Section
-                        # First, handle any direct file children under this depth-2 node
-                        if child_files:
-                            section = Section(
-                                module_id=module.id,
-                                title=section_node.name,
-                                order_index=section_order,
-                            )
-                            session.add(section)
-                            await session.flush()
-                            section_order += 1
-                            
-                            file_order = 0
-                            for f in sorted(child_files, key=_grouped_sort_key):
-                                fp = f"{path_prefix}{f.path}" if path_prefix else f.path
-                                lecture = Lecture(
-                                    section_id=section.id,
-                                    title=f.name,
-                                    order_index=file_order,
-                                    content_type=f.content_type.value,
-                                    file_path=fp,
-                                    original_filename=f.name,
-                                )
-                                session.add(lecture)
-                                file_order += 1
-                        
-                        # Each sub-folder becomes its own Section
-                        for sub_dir in sorted(child_dirs, key=_grouped_sort_key):
-                            section = Section(
-                                module_id=module.id,
-                                title=sub_dir.name,
-                                order_index=section_order,
-                            )
-                            session.add(section)
-                            await session.flush()
-                            section_order += 1
-                            
-                            await _process_lectures(
-                                session, section.id, sub_dir.children, start_order=0,
-                                path_prefix=path_prefix,
-                            )
-                    else:
-                        # All children are files → this is a simple section
-                        section = Section(
-                            module_id=module.id,
-                            title=section_node.name,
-                            order_index=section_order,
-                        )
-                        session.add(section)
-                        await session.flush()
-                        section_order += 1
-
-                        await _process_lectures(
-                            session, section.id, section_node.children, start_order=0,
-                            path_prefix=path_prefix,
-                        )
-
-        # conn = await session.connection()
-        # await conn.execute(text("UPDATE lectures SET file_path = REPLACE(file_path, 'applied_roots/', 'applied_roots/3. Course 3 - Machine Learning [7 Credits]/' ) WHERE file_path LIKE 'applied_roots/%';"))
-        # await conn.commit()
+                    await _process_lectures(
+                        session,
+                        section.id,
+                        children,
+                        start_order=0,
+                        path_prefix=path_prefix,
+                    )
 
     logger.info(
         "Successfully seeded course %r from source_file=%r.",
