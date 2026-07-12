@@ -38,6 +38,7 @@ export function ContentViewer({
   const renderContent = () => {
     switch (lecture.content_type) {
       case "mp4":
+      case "mp3":
         return (
           <VideoPlayer
             src={contentUrl}
