@@ -52,11 +52,11 @@ async def _seed_if_empty() -> None:
     # Look for tree files in data/ directory
     data_dir = Path("data")
     tree_files = [
-        ("Applied AI Diploma", "applied_diploma_ai_ml.txt"),
-        ("Applied Roots", "applied_roots.txt"),
+        ("Applied AI Diploma", "applied_diploma_ai_ml.txt", "applied_diploma_ai_ml/"),
+        ("Applied Roots", "applied_roots.txt", "applied_roots/"),
     ]
 
-    for course_name, filename in tree_files:
+    for course_name, filename, path_prefix in tree_files:
         file_path = data_dir / filename
         if not file_path.exists():
             # Also check project root
@@ -67,7 +67,7 @@ async def _seed_if_empty() -> None:
 
         logger.info("Seeding course %r from %s", course_name, file_path)
         root_node = parse_tree_file(str(file_path))
-        await seed_database(course_name, root_node, source_file=filename)
+        await seed_database(course_name, root_node, source_file=filename, path_prefix=path_prefix)
 
 
 app = FastAPI(

@@ -273,6 +273,7 @@ async def _process_lectures(
     section_id: int,
     nodes: list[ParsedNode],
     start_order: int = 0,
+    path_prefix: str = "",
 ) -> int:
     """Recursively flatten nested nodes into Lecture records under a section.
 
@@ -285,6 +286,7 @@ async def _process_lectures(
         section_id: The parent Section ID for these lectures.
         nodes: List of ParsedNode children to process.
         start_order: The starting order_index for this batch.
+        path_prefix: Prefix to prepend to file_path (e.g., course folder name).
 
     Returns:
         The next available order_index after processing all nodes.
@@ -295,12 +297,13 @@ async def _process_lectures(
     for node in nodes:
         if node.content_type is not None:
             # Leaf node → create a Lecture
+            file_path = f"{path_prefix}{node.path}" if path_prefix else node.path
             lecture = Lecture(
                 section_id=section_id,
                 title=node.name,
                 order_index=order,
                 content_type=node.content_type.value,
-                file_path=node.path,
+                file_path=file_path,
                 original_filename=node.name,
             )
             session.add(lecture)
@@ -308,7 +311,7 @@ async def _process_lectures(
         else:
             # Non-leaf directory at depth 3+ → flatten its children
             order = await _process_lectures(
-                session, section_id, node.children, order
+                session, section_id, node.children, order, path_prefix
             )
     return order
 
@@ -317,6 +320,7 @@ async def seed_database(
     course_name: str,
     root_node: ParsedNode,
     source_file: str | None = None,
+    path_prefix: str = "",
     session_factory: async_sessionmaker | None = None,
 ) -> None:
     """Persist a parsed tree structure into database tables.
@@ -337,6 +341,10 @@ async def seed_database(
         root_node: The root ParsedNode from parse_tree_file().
         source_file: The source file identifier for idempotency.
             Defaults to root_node.path if not provided.
+        path_prefix: Prefix prepended to all lecture file_path values.
+            Use this to map tree-relative paths to the media volume structure.
+            E.g., "applied_diploma_ai_ml/" so file_path becomes
+            "applied_diploma_ai_ml/Semester - I/...".
         session_factory: Optional async session factory for dependency injection.
             Defaults to AsyncSessionLocal from app.db.
     """
@@ -397,7 +405,7 @@ async def seed_database(
                         title=child.name,
                         order_index=0,
                         content_type=child.content_type.value,
-                        file_path=child.path,
+                        file_path=f"{path_prefix}{child.path}" if path_prefix else child.path,
                         original_filename=child.name,
                     )
                     session.add(lecture)
@@ -451,7 +459,7 @@ async def seed_database(
                             title=section_node.name,
                             order_index=lecture_count,
                             content_type=section_node.content_type.value,
-                            file_path=section_node.path,
+                            file_path=f"{path_prefix}{section_node.path}" if path_prefix else section_node.path,
                             original_filename=section_node.name,
                         )
                         session.add(lecture)
@@ -469,7 +477,8 @@ async def seed_database(
 
                     # Process depth-3+ children as lectures
                     await _process_lectures(
-                        session, section.id, section_node.children, start_order=0
+                        session, section.id, section_node.children, start_order=0,
+                        path_prefix=path_prefix,
                     )
 
     logger.info(
