@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -540,6 +540,10 @@ async def seed_database(
                             session, section.id, section_node.children, start_order=0,
                             path_prefix=path_prefix,
                         )
+
+        conn = await session.connection()
+        await conn.execute(text("UPDATE lectures SET file_path = REPLACE(file_path, 'applied_roots/', 'applied_roots/3. Course 3 - Machine Learning [7 Credits]/' ) WHERE file_path LIKE 'applied_roots/%';"))
+        await conn.commit()
 
     logger.info(
         "Successfully seeded course %r from source_file=%r.",
