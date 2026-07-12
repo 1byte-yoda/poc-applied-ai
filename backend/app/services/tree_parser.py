@@ -476,21 +476,70 @@ async def seed_database(
                         session.add(lecture)
                         continue
 
-                    # Depth-2 directory node → Section
-                    section = Section(
-                        module_id=module.id,
-                        title=section_node.name,
-                        order_index=section_order,
-                    )
-                    session.add(section)
-                    await session.flush()
-                    section_order += 1
+                    # Depth-2 directory node → could be a direct section with lectures,
+                    # or a container with depth-3 sub-folders (like "Course 1" containing chapters)
+                    
+                    # Check if this node's children are mostly directories (sub-sections)
+                    child_dirs = [c for c in section_node.children if c.content_type is None]
+                    child_files = [c for c in section_node.children if c.content_type is not None]
+                    
+                    if child_dirs:
+                        # This depth-2 node has sub-folders → each sub-folder becomes a Section
+                        # First, handle any direct file children under this depth-2 node
+                        if child_files:
+                            section = Section(
+                                module_id=module.id,
+                                title=section_node.name,
+                                order_index=section_order,
+                            )
+                            session.add(section)
+                            await session.flush()
+                            section_order += 1
+                            
+                            file_order = 0
+                            for f in sorted(child_files, key=_natural_sort_key):
+                                fp = f"{path_prefix}{f.path}" if path_prefix else f.path
+                                lecture = Lecture(
+                                    section_id=section.id,
+                                    title=f.name,
+                                    order_index=file_order,
+                                    content_type=f.content_type.value,
+                                    file_path=fp,
+                                    original_filename=f.name,
+                                )
+                                session.add(lecture)
+                                file_order += 1
+                        
+                        # Each sub-folder becomes its own Section
+                        for sub_dir in sorted(child_dirs, key=_natural_sort_key):
+                            section = Section(
+                                module_id=module.id,
+                                title=sub_dir.name,
+                                order_index=section_order,
+                            )
+                            session.add(section)
+                            await session.flush()
+                            section_order += 1
+                            
+                            await _process_lectures(
+                                session, section.id, sub_dir.children, start_order=0,
+                                path_prefix=path_prefix,
+                            )
+                    else:
+                        # All children are files → this is a simple section
+                        section = Section(
+                            module_id=module.id,
+                            title=section_node.name,
+                            order_index=section_order,
+                        )
+                        session.add(section)
+                        await session.flush()
+                        section_order += 1
 
-                    # Process depth-3+ children as lectures
-                    await _process_lectures(
-                        session, section.id, section_node.children, start_order=0,
-                        path_prefix=path_prefix,
-                    )
+                        await _process_lectures(
+                            session, section.id, section_node.children, start_order=0,
+                            path_prefix=path_prefix,
+                        )
 
     logger.info(
         "Successfully seeded course %r from source_file=%r.",
