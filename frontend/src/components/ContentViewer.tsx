@@ -58,7 +58,7 @@ export function ContentViewer({ lecture, onPrev, onNext, nextLectureTitle }: Con
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto">{renderContent()}</div>
+      <div className="flex-1 min-h-0 overflow-auto">{renderContent()}</div>
       <NavigationBar onPrev={onPrev} onNext={onNext} />
     </div>
   );
