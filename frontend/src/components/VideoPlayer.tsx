@@ -8,6 +8,11 @@ interface VideoPlayerProps {
   onAutoComplete?: () => void;
 }
 
+/** Generate a localStorage key for saving playback position. */
+function getStorageKey(src: string): string {
+  return `video-progress:${src}`;
+}
+
 export function VideoPlayer({
   src,
   title,
@@ -19,6 +24,7 @@ export function VideoPlayer({
   const [countdown, setCountdown] = useState(5);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const saveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const cancelCountdown = useCallback(() => {
     setShowCountdown(false);
@@ -30,6 +36,9 @@ export function VideoPlayer({
   }, []);
 
   const handleVideoEnd = useCallback(() => {
+    // Clear saved position when video completes
+    localStorage.removeItem(getStorageKey(src));
+
     if (!onEnded) return;
     setShowCountdown(true);
     setCountdown(5);
@@ -38,7 +47,6 @@ export function VideoPlayer({
       setCountdown((prev) => {
         if (prev <= 1) {
           cancelCountdown();
-          // Fire auto-complete before navigating (fire-and-forget)
           onAutoComplete?.();
           onEnded();
           return 5;
@@ -46,9 +54,51 @@ export function VideoPlayer({
         return prev - 1;
       });
     }, 1000);
-  }, [onEnded, cancelCountdown, onAutoComplete]);
+  }, [src, onEnded, cancelCountdown, onAutoComplete]);
 
-  // Clean up timer on unmount or src change
+  // Restore playback position when video loads
+  const handleLoadedMetadata = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const saved = localStorage.getItem(getStorageKey(src));
+    if (saved) {
+      const time = parseFloat(saved);
+      // Only resume if not near the end (within 5 seconds of end = start over)
+      if (!isNaN(time) && time > 0 && time < video.duration - 5) {
+        video.currentTime = time;
+      }
+    }
+  }, [src]);
+
+  // Save playback position periodically (every 3 seconds)
+  useEffect(() => {
+    saveIntervalRef.current = setInterval(() => {
+      const video = videoRef.current;
+      if (video && !video.paused && video.currentTime > 0) {
+        localStorage.setItem(
+          getStorageKey(src),
+          video.currentTime.toString()
+        );
+      }
+    }, 3000);
+
+    return () => {
+      // Save final position on unmount
+      const video = videoRef.current;
+      if (video && video.currentTime > 0 && video.currentTime < video.duration - 5) {
+        localStorage.setItem(
+          getStorageKey(src),
+          video.currentTime.toString()
+        );
+      }
+      if (saveIntervalRef.current) {
+        clearInterval(saveIntervalRef.current);
+      }
+    };
+  }, [src]);
+
+  // Clean up countdown timer on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -61,16 +111,17 @@ export function VideoPlayer({
   }, [src, cancelCountdown]);
 
   return (
-    <div className="flex flex-col h-full p-4">
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">{title}</h2>
-      <div className="relative flex-1 flex items-center justify-center bg-black rounded-lg overflow-hidden">
+    <div className="flex flex-col h-full">
+      <h2 className="text-lg font-semibold text-gray-800 px-4 pt-4 pb-2">{title}</h2>
+      <div className="relative flex-1 flex items-center justify-center bg-black rounded-lg overflow-hidden mx-4 mb-4">
         <video
           ref={videoRef}
           controls
           autoPlay
-          className="max-w-full max-h-full"
+          className="w-full h-full object-contain"
           src={src}
           onEnded={handleVideoEnd}
+          onLoadedMetadata={handleLoadedMetadata}
           aria-label={`Video: ${title}`}
         >
           <track kind="captions" />
@@ -123,7 +174,6 @@ export function VideoPlayer({
                 <button
                   onClick={() => {
                     cancelCountdown();
-                    // Fire auto-complete before navigating (fire-and-forget)
                     onAutoComplete?.();
                     onEnded?.();
                   }}
